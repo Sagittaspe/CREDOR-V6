@@ -146,6 +146,8 @@
     .btn:active { transform: scale(0.98); }
     .btn-success { background-color: #059669; }
     .btn-edit { background-color: var(--card-inner); color: var(--text-muted); border: 1px solid var(--border); }
+    .btn-danger { background-color: var(--danger-bg); color: var(--danger-text); border: 1px solid var(--danger-border); }
+    .btn-danger:hover { background-color: #4c1d24; }
 
     .fab-container {
       position: fixed;
@@ -173,7 +175,6 @@
       border-color: var(--primary);
     }
 
-    /* CABEÇALHO DO CARD (RESUMO VISÍVEL) */
     .card-header-summary {
       padding: 1rem 1.2rem;
       cursor: pointer;
@@ -208,7 +209,6 @@
       transform: rotate(180deg);
     }
 
-    /* CORPO DA GAVETA (DETALHES E BOTÃO REVELADOS) */
     .card-drawer-body {
       display: none;
       padding: 0 1.2rem 1.2rem 1.2rem;
@@ -290,6 +290,12 @@
     .form-control:focus { outline: 2px solid var(--primary); border-color: transparent; }
     .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 
+    .modal-actions-footer {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
     @media (min-width: 640px) {
       .drawer-overlay { align-items: center; justify-content: center; }
       .drawer { border-radius: 20px; width: 90%; max-width: 480px; border: 1px solid var(--border); }
@@ -334,7 +340,7 @@
       <h3 style="font-size: 1.1rem; color: var(--text-muted);">Seus Recebimentos</h3>
     </div>
 
-    <!-- LISTA DE CARDS (GAVETAS INDIVIDUAIS) -->
+    <!-- LISTA DE CARDS -->
     <div class="card-list" id="card-list"></div>
   </main>
 
@@ -396,7 +402,10 @@
           <input type="number" id="diaVencimento" class="form-control" min="1" max="31" required placeholder="Ex: 10">
         </div>
 
-        <button type="submit" class="btn" style="margin-top: 0.5rem;">Salvar Registro</button>
+        <div class="modal-actions-footer">
+          <button type="button" id="btnExcluirCredor" class="btn btn-danger" style="display: none;" onclick="excluirCredor()">🗑️ Excluir</button>
+          <button type="submit" class="btn">Salvar Registro</button>
+        </div>
       </form>
     </div>
   </div>
@@ -407,6 +416,8 @@
     // GAVETA MODAL (FORMULÁRIO)
     function openDrawer(id = null) {
       document.getElementById('drawerOverlay').classList.add('active');
+      const btnExcluir = document.getElementById('btnExcluirCredor');
+
       if (id !== null) {
         const item = registros.find(r => r.id === id);
         document.getElementById('drawerTitle').innerText = "Editar Registro";
@@ -418,10 +429,16 @@
         document.getElementById('tipoRecebimento').value = item.tipoRecebimento;
         document.getElementById('qtdParcelas').value = item.qtdParcelas;
         document.getElementById('diaVencimento').value = item.diaVencimento;
+        
+        // Exibe o botão de exclusão na edição
+        btnExcluir.style.display = 'inline-flex';
       } else {
         document.getElementById('drawerTitle').innerText = "Cadastrar Credor";
         document.getElementById('credorForm').reset();
         document.getElementById('recordId').value = "";
+        
+        // Oculta o botão de exclusão ao cadastrar novo
+        btnExcluir.style.display = 'none';
       }
       toggleParcelasInput();
     }
@@ -439,7 +456,6 @@
       document.getElementById('parcelasContainer').style.display = tipo === 'recorrente' ? 'none' : 'block';
     }
 
-    // ALTERNAR SANFONA / GAVETA INDIVIDUAL DO CARD
     function toggleCard(cardElement) {
       cardElement.classList.toggle('open');
     }
@@ -448,16 +464,20 @@
     function handleFormSubmit(e) {
       e.preventDefault();
       const id = document.getElementById('recordId').value;
+      const recordIdNum = id ? parseInt(id) : Date.now();
+      const registroExistente = registros.find(r => r.id == recordIdNum);
+
       const data = {
-        id: id ? parseInt(id) : Date.now(),
+        id: recordIdNum,
         nome: document.getElementById('nome').value,
         valorTotal: parseFloat(document.getElementById('valorTotal').value),
         tipoJuros: document.getElementById('tipoJuros').value,
         valorJuros: parseFloat(document.getElementById('valorJuros').value),
         tipoRecebimento: document.getElementById('tipoRecebimento').value,
         qtdParcelas: document.getElementById('tipoRecebimento').value === 'recorrente' ? 0 : parseInt(document.getElementById('qtdParcelas').value),
-        parcelasPagas: id ? (registros.find(r => r.id == id).parcelasPagas || 0) : 0,
-        diaVencimento: parseInt(document.getElementById('diaVencimento').value)
+        parcelasPagas: registroExistente ? (registroExistente.parcelasPagas || 0) : 0,
+        diaVencimento: parseInt(document.getElementById('diaVencimento').value),
+        ultimoPagamentoMesAno: registroExistente ? (registroExistente.ultimoPagamentoMesAno || "") : ""
       };
 
       if (id) {
@@ -471,12 +491,30 @@
       closeDrawer();
     }
 
+    function excluirCredor() {
+      const id = document.getElementById('recordId').value;
+      if (!id) return;
+
+      const item = registros.find(r => r.id == id);
+      if (item && confirm(`Tem certeza que deseja excluir "${item.nome}"? Esta ação não pode ser desfeita.`)) {
+        registros = registros.filter(r => r.id != id);
+        salvarEAtualizar();
+        closeDrawer();
+      }
+    }
+
     function confirmarPagamento(id, event) {
-      event.stopPropagation(); // Impede fechar a gaveta ao clicar no botão
+      event.stopPropagation();
       const item = registros.find(r => r.id === id);
       if (item) {
         if (item.tipoRecebimento === 'parcelado' && item.parcelasPagas >= item.qtdParcelas) return;
+        
         item.parcelasPagas += 1;
+        
+        // Registra o mês e ano do pagamento atual para retirar o alerta no cabeçalho
+        const hoje = new Date();
+        item.ultimoPagamentoMesAno = `${hoje.getFullYear()}-${hoje.getMonth() + 1}`;
+        
         salvarEAtualizar();
       }
     }
@@ -538,10 +576,10 @@
         }
       };
       reader.readAsText(file);
-      event.target.value = ''; // Limpa o input
+      event.target.value = '';
     }
 
-    // RENDERIZAÇÃO DOS CARDS
+    // RENDERIZAÇÃO DOS CARDS E STATUS DE ALERTAS
     function renderCards() {
       const container = document.getElementById('card-list');
       container.innerHTML = '';
@@ -553,6 +591,7 @@
       const diaAtual = hoje.getDate();
       const mesAtual = hoje.getMonth();
       const anoAtual = hoje.getFullYear();
+      const chaveMesAtual = `${anoAtual}-${mesAtual + 1}`;
 
       if (registros.length === 0) {
         container.innerHTML = `
@@ -565,32 +604,36 @@
 
       registros.forEach(item => {
         const valorFinal = calcularValores(item);
-        
-        let statusHtml = '';
-        let proxVencimento = new Date(anoAtual, mesAtual, item.diaVencimento);
-        
-        if (diaAtual > item.diaVencimento) {
-          proxVencimento.setMonth(proxVencimento.getMonth() + 1);
-        }
+        const estaQuitadoTotal = (item.tipoRecebimento === 'parcelado' && item.parcelasPagas >= item.qtdParcelas);
+        const pagoNesteMes = (item.ultimoPagamentoMesAno === chaveMesAtual);
 
-        const diffTime = proxVencimento - hoje;
+        let statusHtml = '';
+        
+        // Data teórica de vencimento no mês corrente
+        const vencimentoMesAtual = new Date(anoAtual, mesAtual, item.diaVencimento);
+        const diffTime = vencimentoMesAtual - hoje;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        if (diaAtual === item.diaVencimento || (diaAtual > item.diaVencimento && diffDays < 0)) {
-          statusHtml = `<span class="status-tag status-vencido">Hoje / Atrasado</span>`;
-          countHojeOuAtrasado++;
-        } else if (diffDays <= 5 && diffDays >= 0) {
-          statusHtml = `<span class="status-tag status-proximo">Em ${diffDays} dia(s)</span>`;
-          count5Dias++;
+        if (estaQuitadoTotal) {
+          statusHtml = `<span class="status-tag status-ok">✓ Quitado</span>`;
+        } else if (pagoNesteMes) {
+          statusHtml = `<span class="status-tag status-ok">✓ Pago este mês</span>`;
         } else {
-          statusHtml = `<span class="status-tag status-ok">Em dia</span>`;
+          // Se não recebeu baixa na parcela atual, verifica pendência para os alertas do cabeçalho
+          if (diaAtual >= item.diaVencimento) {
+            statusHtml = `<span class="status-tag status-vencido">Hoje / Atrasado</span>`;
+            countHojeOuAtrasado++;
+          } else if (diffDays <= 5 && diffDays > 0) {
+            statusHtml = `<span class="status-tag status-proximo">Em ${diffDays} dia(s)</span>`;
+            count5Dias++;
+          } else {
+            statusHtml = `<span class="status-tag status-ok">A vencer</span>`;
+          }
         }
 
         let infoParcela = item.tipoRecebimento === 'recorrente' 
           ? `Recorrente (${item.parcelasPagas} pagas)` 
           : `${item.parcelasPagas} de ${item.qtdParcelas} pagas`;
-
-        const desabilitado = (item.tipoRecebimento === 'parcelado' && item.parcelasPagas >= item.qtdParcelas);
 
         const card = document.createElement('div');
         card.className = 'credor-card';
@@ -621,8 +664,8 @@
             </div>
 
             <div class="card-actions">
-              <button class="btn btn-success" ${desabilitado ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''} onclick="confirmarPagamento(${item.id}, event)">
-                ${desabilitado ? '✓ Quitado' : '✓ Pago (Dar Baixa)'}
+              <button class="btn btn-success" ${estaQuitadoTotal ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''} onclick="confirmarPagamento(${item.id}, event)">
+                ${estaQuitadoTotal ? '✓ Quitado' : (pagoNesteMes ? '✓ Parcela Paga' : '✓ Pago (Dar Baixa)')}
               </button>
               <button class="btn btn-edit" onclick="event.stopPropagation(); openDrawer(${item.id})">Editar</button>
             </div>
